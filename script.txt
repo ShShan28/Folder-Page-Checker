@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Folder Page Checker</title>
+  <link rel="icon" type="image/png" href="v.jpg" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background-color: #f9fafb;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #2c3e50;
+      margin: 0.2em 0;
+    }
+    input[type="file"] {
+      display: block;
+      margin: 20px auto;
+    }
+    #output {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .folder-card {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+      padding: 20px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 15px;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+    .badge.missing {
+      background-color: #f9d6d5;
+      color: #c0392b;
+    }
+    .badge.warning {
+      background-color: #fceabb;
+      color: #d68910;
+    }
+    #downloadBtn {
+      display: none;
+      margin: 20px auto;
+      padding: 12px 25px;
+      background-color: #007bff;
+      color: white;
+      font-size: 1em;
+      font-weight: bold;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,123,255,0.4);
+    }
+  </style>
+</head>
+<body>
+
+<h1>Express News Paper's Pvt Ltd Site</h1>
+<h1>ICT Team 2025</h1>
+<h1>Folder Page Checker</h1>
+
+<input type="file" id="folderInput" webkitdirectory directory multiple />
+<div id="output"></div>
+<button id="downloadBtn">Download Excel Report</button>
+
+<script>
+  const allowedPageCounts = [6, 8, 10, 12, 14, 16];
+  const pageRate = 48;
+  let reportData = [];
+
+  function parseDateFromFolderName(name) {
+    const patterns = [
+      /^(\d{2})(\d{2})(\d{4})$/,    // ddmmyyyy
+      /^(\d{2})(\d{2})(\d{2})$/,    // ddmmyy
+      /^(\d{4})(\d{2})(\d{2})$/,    // yyyymmdd
+      /^(\d{2})\.(\d{2})\.(\d{4})$/, // dd.mm.yyyy
+      /^(\d{4})\.(\d{2})\.(\d{2})$/, // yyyy.mm.dd
+    ];
+
+    for (const pattern of patterns) {
+      const match = name.match(pattern);
+      if (match) {
+        try {
+          let dd, mm, yyyy;
+
+          if (pattern === patterns[1]) { // ddmmyy (2-digit year)
+            dd = match[1];
+            mm = match[2];
+            const yr = Number(match[3]);
+            yyyy = yr < 30 ? "20" + String(yr).padStart(2, "0") : "19" + String(yr).padStart(2, "0");
+          } else if (pattern === patterns[0] || pattern === patterns[3]) { // ddmmyyyy or dd.mm.yyyy
+            dd = match[1];
+            mm = match[2];
+            yyyy = match[3];
+          } else if (pattern === patterns[2] || pattern === patterns[4]) { // yyyymmdd or yyyy.mm.dd
+            yyyy = match[1];
+            mm = match[2];
+            dd = match[3];
+          } else {
+            continue;
+          }
+
+          const dateStr = `${yyyy}-${mm}-${dd}`;
+          const dt = new Date(dateStr);
+          if (!isNaN(dt)) return dt;
+        } catch (e) {
+          // ignore parse errors
+        }
+      }
+    }
+    return null;
+  }
+
+  function getPossibleFolderNames(date) {
+    const dd = String(date.getDate()).padStart(2, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const yyyy = date.getFullYear();
+    const yy = yyyy.toString().slice(-2);
+
+    return [
+      `${dd}${mm}${yyyy}`, `${dd}${mm}${yy}`,
+      `${dd}.${mm}.${yyyy}`, `${yyyy}${mm}${dd}`,
+      `${yyyy}.${mm}.${dd}`, `${yyyy}-${mm}-${dd}`,
+      `${dd}-${mm}-${yyyy}`
+    ];
+  }
+
+  document.getElementById("folderInput").addEventListener("change", function(event) {
+    const files = event.target.files;
+    const folderMap = {};
+    const folderDateSet = new Set();
+
+    for (const file of files) {
+      const parts = file.webkitRelativePath.split('/');
+      if (parts.length < 2) continue;
+      const folderName = parts[1];
+      if (!folderMap[folderName]) folderMap[folderName] = [];
+      const fileName = file.name;
+
+      const match = fileName.match(/Page\s*0*(\d{1,2})/i) ||
+                    fileName.match(/(\d{1,2})p/i) ||
+                    fileName.match(/^0*(\d{1,2})\D/) ||
+                    fileName.match(/MAIN\s*0*(\d{1,2})/i);
+
+      if (match) {
+        const page = parseInt(match[1]);
+        if (page >= 1 && page <= 99) {
+          folderMap[folderName].push(page);
+        }
+      }
+
+      const cleanedName = folderName.replace(/[^0-9.]/g, '');
+      const date = parseDateFromFolderName(cleanedName);
+      if (date) {
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        folderDateSet.add(key);
+      }
+    }
+
+    const combinedFolders = [];
+
+    for (const key of folderDateSet) {
+      const [year, month] = key.split('-').map(Number);
+      const daysInMonth = new Date(year, month, 0).getDate();
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(year, month - 1, d);
+        const possibleNames = getPossibleFolderNames(date);
+
+        const actualFolderName = Object.keys(folderMap).find(fn =>
+          possibleNames.some(possible => fn.includes(possible))
+        );
+
+        const pages = actualFolderName ? folderMap[actualFolderName] : [];
+        const foundPages = [...new Set(pages)].sort((a, b) => a - b);
+        const pageLimit = allowedPageCounts.find(n => n >= (foundPages.length ? Math.max(...foundPages) : 0)) || 0;
+        const missingPages = [];
+        for (let i = 1; i <= pageLimit; i++) {
+          if (!foundPages.includes(i)) missingPages.push(i);
+        }
+
+        let missingPageCount, pagesMissing, totalValue, maxPage;
+
+        if (!actualFolderName) {
+          missingPageCount = 12;
+          pagesMissing = Array.from({length:12}, (_,i) => i+1).join(', ');
+          totalValue = 12 * pageRate;
+          maxPage = 12;  // max page set to 12 for missing folders
+        } else {
+          missingPageCount = missingPages.length;
+          pagesMissing = missingPages.length ? missingPages.join(', ') : 0;
+          totalValue = missingPageCount * pageRate;  // Value for missing pages only
+          maxPage = foundPages.length ? Math.max(...foundPages) : 0;
+        }
+
+        combinedFolders.push({
+          "Month": `${String(month).padStart(2, '0')}-${year}`,
+          "Folder": possibleNames[2], // dd.mm.yyyy
+          "Pages Found": actualFolderName ? foundPages.join(', ') : "None",
+          "Pages Missing": pagesMissing,
+          "Max Page": maxPage,
+          "Missing Page Count": missingPageCount,
+          "Total Value (LKR)": totalValue
+        });
+      }
+    }
+
+    combinedFolders.sort((a, b) => new Date(parseDateFromFolderName(a.Folder)) - new Date(parseDateFromFolderName(b.Folder)));
+    reportData = combinedFolders;
+
+    const output = document.getElementById("output");
+    output.innerHTML = "";
+    for (const folder of combinedFolders) {
+      const isMissing = folder["Pages Found"] === "None" && folder["Missing Page Count"] === 12;
+      const div = document.createElement("div");
+      div.className = "folder-card";
+      div.innerHTML = `
+        <div><b>Month:</b> ${folder.Month}</div>
+        <div><b>📁 Folder:</b> ${folder.Folder}</div>
+        <div><b>✔️ Pages present:</b> ${isMissing ? '<span class="badge missing">None (Folder Missing)</span>' : folder["Pages Found"]}</div>
+        <div><b>❌ Pages missing:</b> ${folder["Pages Missing"]}</div>
+        <div><b>📈 Max page found:</b> ${folder["Max Page"]}</div>
+        <div><b>💰 Total Value:</b> <span class="badge warning">LKR ${folder["Total Value (LKR)"]}</span></div>
+      `;
+      output.appendChild(div);
+    }
+
+    document.getElementById("downloadBtn").style.display = "inline-block";
+  });
+
+  document.getElementById("downloadBtn").addEventListener("click", function () {
+    let totalValue = 0;
+    let totalMissingPages = 0;
+    let totalMaxPage = 0;
+
+    for (const row of reportData) {
+      totalValue += Number(row["Total Value (LKR)"] || 0);
+      totalMissingPages += Number(row["Missing Page Count"] || 0);
+      totalMaxPage += Number(row["Max Page"] || 0);
+    }
+
+    const cleanedReportData = reportData.map(row => {
+      return {
+        "Month": row["Month"] || "",
+        "Folder": row["Folder"] || "",
+        "Pages Found": row["Pages Found"] !== undefined ? row["Pages Found"] : "0",
+        "Pages Missing": row["Pages Missing"] !== undefined ? row["Pages Missing"] : "0",
+        "Max Page": row["Max Page"] || 0,
+        "Missing Page Count": row["Missing Page Count"] || 0,
+        "Total Value (LKR)": row["Total Value (LKR)"] || 0
+      };
+    });
+
+    cleanedReportData.push({});
+    cleanedReportData.push({
+      "Month": "TOTAL",
+      "Folder": "",
+      "Pages Found": "",
+      "Pages Missing": "",
+      "Max Page": totalMaxPage,
+      "Missing Page Count": totalMissingPages,
+      "Total Value (LKR)": totalValue
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(cleanedReportData, {
+      header: ["Month", "Folder", "Pages Found", "Pages Missing", "Max Page", "Missing Page Count", "Total Value (LKR)"]
+    });
+    XLSX.utils.book_append_sheet(wb, ws, "Folder Report");
+    XLSX.writeFile(wb, "pages_report.xlsx");
+  });
+</script>
+
+</body>
+</html>
